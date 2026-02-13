@@ -1,0 +1,5 @@
+# GhostLogic Agent has zero external dependencies.
+# It uses only the Python standard library (3.10+).
+#
+# This file exists for compatibility with pip install -r.
+# No packages required.

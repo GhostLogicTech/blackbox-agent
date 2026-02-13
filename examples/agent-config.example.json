@@ -1,0 +1,10 @@
+{
+  "blackbox_url": "https://api.blackbox.ghostlogic.tech",
+  "tenant_key": "YOUR_TENANT_KEY_HERE",
+  "agent_id": "",
+  "collect_interval_secs": 5,
+  "seal_interval_secs": 60,
+  "demo_mode": true,
+  "log_dir": "",
+  "log_max_hours": 24
+}
