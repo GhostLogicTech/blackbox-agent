@@ -11,7 +11,7 @@ LOG_DIR="/var/log/ghostlogic"
 SERVICE_NAME="ghostlogic-agent"
 VENV_DIR="$INSTALL_DIR/venv"
 
-BLACKBOX_URL="${BLACKBOX_URL:-https://api.blackbox.ghostlogic.tech}"
+BLACKBOX_URL="${BLACKBOX_URL:-https://api.ghostlogic.tech}"
 TENANT_KEY="${TENANT_KEY:-}"
 
 echo ""

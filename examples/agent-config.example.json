@@ -1,5 +1,5 @@
 {
-  "blackbox_url": "https://api.blackbox.ghostlogic.tech",
+  "blackbox_url": "https://api.ghostlogic.tech",
   "tenant_key": "YOUR_TENANT_KEY_HERE",
   "agent_id": "",
   "collect_interval_secs": 5,

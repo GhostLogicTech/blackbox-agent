@@ -11,7 +11,7 @@ LOG_DIR="/usr/local/var/log/ghostlogic"
 VENV_DIR="$INSTALL_DIR/venv"
 PLIST_NAME="tech.ghostlogic.agent"
 
-BLACKBOX_URL="${BLACKBOX_URL:-https://api.blackbox.ghostlogic.tech}"
+BLACKBOX_URL="${BLACKBOX_URL:-https://api.ghostlogic.tech}"
 TENANT_KEY="${TENANT_KEY:-}"
 
 # Detect the real user's home even when run with sudo

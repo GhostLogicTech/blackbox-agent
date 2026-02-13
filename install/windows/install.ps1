@@ -9,7 +9,7 @@
 
 param(
     [string]$TenantKey = "",
-    [string]$BlackboxUrl = "https://api.blackbox.ghostlogic.tech",
+    [string]$BlackboxUrl = "https://api.ghostlogic.tech",
     [switch]$DemoMode
 )
 

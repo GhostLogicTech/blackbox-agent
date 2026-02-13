@@ -9,7 +9,7 @@ import uuid
 
 
 DEFAULT_CONFIG = {
-    "blackbox_url": "https://api.blackbox.ghostlogic.tech",
+    "blackbox_url": "https://api.ghostlogic.tech",
     "tenant_key": "",
     "agent_id": "",
     "collect_interval_secs": 5,

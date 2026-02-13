@@ -79,7 +79,7 @@ Override with `--config /path/to/file.json` or env `GHOSTLOGIC_CONFIG=/path/to/f
 
 ```json
 {
-  "blackbox_url": "https://api.blackbox.ghostlogic.tech",
+  "blackbox_url": "https://api.ghostlogic.tech",
   "tenant_key": "YOUR_TENANT_KEY",
   "agent_id": "auto-generated-uuid",
   "collect_interval_secs": 5,
@@ -157,7 +157,7 @@ bash install/mac/uninstall.sh
 ### Connection errors
 
 1. Verify `blackbox_url` is correct
-2. Test connectivity: `curl -s https://api.blackbox.ghostlogic.tech/health`
+2. Test connectivity: `curl -s https://api.ghostlogic.tech/health`
 3. If using self-signed certs, set `demo_mode: true`
 
 ### "No tenant_key configured"

@@ -36,6 +36,7 @@ def _post(url: str, tenant_key: str, payload: dict, demo_mode: bool) -> dict:
 
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "GhostLogic-Agent/1.0")
     if tenant_key:
         req.add_header("Authorization", f"Bearer {tenant_key}")
         req.add_header("X-API-Key", tenant_key)
