@@ -54,6 +54,30 @@ def normalize_telemetry(raw: dict, agent_id: str, source_id: str) -> dict:
             },
         })
 
+    # Disk usage event
+    disks = raw.get("disks", [])
+    if disks:
+        events.append({
+            "event_type": "disk_usage",
+            "timestamp": ts,
+            "data": {
+                "count": len(disks),
+                "volumes": disks,
+            },
+        })
+
+    # Open ports event
+    open_ports = raw.get("open_ports", [])
+    if open_ports:
+        events.append({
+            "event_type": "open_ports",
+            "timestamp": ts,
+            "data": {
+                "count": len(open_ports),
+                "ports": open_ports,
+            },
+        })
+
     hostname = raw.get("hostname", "unknown")
 
     return {

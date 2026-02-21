@@ -319,6 +319,193 @@ def _get_network_summary() -> list[dict]:
     return connections
 
 
+def _get_disk_usage() -> list[dict]:
+    """Return disk usage per mounted volume. No external deps."""
+    disks: list[dict] = []
+    try:
+        if _SYSTEM == "Windows":
+            import ctypes
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter_idx in range(26):
+                if bitmask & (1 << letter_idx):
+                    drive = f"{chr(65 + letter_idx)}:\\"
+                    try:
+                        total, used, free = _win_disk_usage(drive)
+                        if total > 0:
+                            disks.append({
+                                "mount": drive,
+                                "total_bytes": total,
+                                "used_bytes": used,
+                                "free_bytes": free,
+                                "percent": round((used / total) * 100, 1),
+                            })
+                    except Exception:
+                        pass
+        elif _SYSTEM == "Linux":
+            result = subprocess.run(
+                ["df", "-B1", "--output=target,size,used,avail"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n")[1:]:
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[1].isdigit():
+                        mount = parts[0]
+                        # Skip pseudo-filesystems
+                        if mount.startswith(("/dev", "/run", "/sys", "/proc", "/snap")):
+                            if not mount.startswith("/dev"):
+                                continue
+                        total = int(parts[1])
+                        used = int(parts[2])
+                        free = int(parts[3])
+                        if total > 0:
+                            disks.append({
+                                "mount": mount,
+                                "total_bytes": total,
+                                "used_bytes": used,
+                                "free_bytes": free,
+                                "percent": round((used / total) * 100, 1),
+                            })
+        elif _SYSTEM == "Darwin":
+            result = subprocess.run(
+                ["df", "-b"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n")[1:]:
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        mount = parts[-1]
+                        if mount in ("/", "/System/Volumes/Data") or mount.startswith("/Volumes"):
+                            try:
+                                blocks = int(parts[1])
+                                used_blocks = int(parts[2])
+                                avail_blocks = int(parts[3])
+                                total = blocks * 512
+                                used = used_blocks * 512
+                                free = avail_blocks * 512
+                                if total > 0:
+                                    disks.append({
+                                        "mount": mount,
+                                        "total_bytes": total,
+                                        "used_bytes": used,
+                                        "free_bytes": free,
+                                        "percent": round((used / total) * 100, 1),
+                                    })
+                            except ValueError:
+                                pass
+    except Exception:
+        pass
+    return disks
+
+
+def _win_disk_usage(path: str) -> tuple[int, int, int]:
+    """Windows disk usage via GetDiskFreeSpaceExW."""
+    import ctypes
+    free_bytes = ctypes.c_uint64(0)
+    total_bytes = ctypes.c_uint64(0)
+    free_total = ctypes.c_uint64(0)
+    ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+        path,
+        ctypes.byref(free_bytes),
+        ctypes.byref(total_bytes),
+        ctypes.byref(free_total),
+    )
+    total = total_bytes.value
+    free = free_bytes.value
+    used = total - free
+    return total, used, free
+
+
+def _get_open_ports() -> list[dict]:
+    """Return listening ports with process info where available."""
+    ports: list[dict] = []
+    try:
+        if _SYSTEM == "Windows":
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return ports
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if "LISTENING" not in line:
+                    continue
+                parts = line.split()
+                if len(parts) >= 5:
+                    local = parts[1]
+                    pid_str = parts[4]
+                    # Parse address:port
+                    if ":" in local:
+                        addr, port_str = local.rsplit(":", 1)
+                        try:
+                            ports.append({
+                                "proto": "TCP",
+                                "address": addr,
+                                "port": int(port_str),
+                                "pid": int(pid_str) if pid_str.isdigit() else None,
+                                "state": "LISTENING",
+                            })
+                        except ValueError:
+                            pass
+        elif _SYSTEM == "Linux":
+            result = subprocess.run(
+                ["ss", "-tlnp"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return ports
+            for line in result.stdout.strip().split("\n")[1:]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    local = parts[3]
+                    if ":" in local:
+                        addr, port_str = local.rsplit(":", 1)
+                        try:
+                            entry: dict = {
+                                "proto": "TCP",
+                                "address": addr,
+                                "port": int(port_str),
+                                "state": "LISTEN",
+                            }
+                            # Try to extract process info
+                            if len(parts) >= 6:
+                                entry["process"] = parts[5][:80]
+                            ports.append(entry)
+                        except ValueError:
+                            pass
+        elif _SYSTEM == "Darwin":
+            result = subprocess.run(
+                ["netstat", "-an", "-p", "tcp"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return ports
+            for line in result.stdout.split("\n"):
+                if "LISTEN" not in line:
+                    continue
+                parts = line.split()
+                if len(parts) >= 4:
+                    local = parts[3]
+                    if "." in local:
+                        last_dot = local.rfind(".")
+                        addr = local[:last_dot]
+                        port_str = local[last_dot + 1:]
+                        try:
+                            ports.append({
+                                "proto": "TCP",
+                                "address": addr,
+                                "port": int(port_str),
+                                "state": "LISTEN",
+                            })
+                        except ValueError:
+                            pass
+    except Exception:
+        pass
+    return ports
+
+
 def collect_all() -> dict:
     """Collect all telemetry and return as a raw dict."""
     mem = _get_memory_usage()
@@ -332,4 +519,6 @@ def collect_all() -> dict:
         "ram_percent": mem.get("percent") if mem else None,
         "processes": _get_processes(20),
         "network": _get_network_summary(),
+        "disks": _get_disk_usage(),
+        "open_ports": _get_open_ports(),
     }

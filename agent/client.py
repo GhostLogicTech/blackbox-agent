@@ -2,6 +2,7 @@
 
 import json
 import logging
+import socket
 import urllib.request
 import urllib.error
 import ssl
@@ -11,11 +12,6 @@ log = logging.getLogger("ghostlogic.client")
 
 def _make_ssl_context(demo_mode: bool) -> ssl.SSLContext:
     if demo_mode:
-        log.warning(
-            "⚠️  DEMO MODE: TLS certificate verification is DISABLED. "
-            "This is insecure and should NEVER be used in production. "
-            "Set demo_mode=false in your config file."
-        )
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -23,10 +19,44 @@ def _make_ssl_context(demo_mode: bool) -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def register(base_url: str, name: str, demo_mode: bool = False) -> dict:
-    """POST to /api/v1/register to get a new API key. No auth required."""
-    url = f"{base_url.rstrip('/')}/api/v1/register"
-    return _post(url, "", {"name": name}, demo_mode)
+def register(cfg: dict) -> dict | None:
+    """
+    Register this agent with the Blackbox API and get a tenant key.
+    POST /api/v1/register with {"name": "auto:{hostname}", "agent_id": "{agent_id}"}
+    Returns {"api_key": "glk_...", "tenant_id": "...", "key_id": "...", "name": "..."} or None on failure.
+    """
+    base_url = cfg.get("blackbox_url", "").rstrip("/")
+    url = f"{base_url}/api/v1/register"
+    hostname = socket.gethostname()
+    agent_id = cfg.get("agent_id", "")
+
+    body = json.dumps({"name": f"auto:{hostname}", "agent_id": agent_id}).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("User-Agent", "GhostLogic-Agent/1.0")
+
+    ctx = _make_ssl_context(cfg.get("demo_mode", True))
+
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+            raw = resp.read().decode("utf-8")
+            result = json.loads(raw)
+            log.info("Registration successful: tenant_id=%s", result.get("tenant_id"))
+            return result
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = "(unreadable)"
+        log.error("Registration HTTP %d from %s: %s", e.code, url, err_body[:500])
+        return None
+    except urllib.error.URLError as e:
+        log.error("Registration connection failed to %s: %s", url, e.reason)
+        return None
+    except Exception as e:
+        log.error("Registration request failed to %s: %s", url, e)
+        return None
 
 
 def post_ingest(base_url: str, tenant_key: str, payload: dict, demo_mode: bool = True) -> dict:
