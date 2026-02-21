@@ -11,11 +11,22 @@ log = logging.getLogger("ghostlogic.client")
 
 def _make_ssl_context(demo_mode: bool) -> ssl.SSLContext:
     if demo_mode:
+        log.warning(
+            "⚠️  DEMO MODE: TLS certificate verification is DISABLED. "
+            "This is insecure and should NEVER be used in production. "
+            "Set demo_mode=false in your config file."
+        )
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
     return ssl.create_default_context()
+
+
+def register(base_url: str, name: str, demo_mode: bool = False) -> dict:
+    """POST to /api/v1/register to get a new API key. No auth required."""
+    url = f"{base_url.rstrip('/')}/api/v1/register"
+    return _post(url, "", {"name": name}, demo_mode)
 
 
 def post_ingest(base_url: str, tenant_key: str, payload: dict, demo_mode: bool = True) -> dict:

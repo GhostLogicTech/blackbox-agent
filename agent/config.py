@@ -14,7 +14,7 @@ DEFAULT_CONFIG = {
     "agent_id": "",
     "collect_interval_secs": 5,
     "seal_interval_secs": 60,
-    "demo_mode": True,
+    "demo_mode": False,
     "log_dir": "",
     "log_max_hours": 24,
 }
@@ -60,14 +60,13 @@ def load_config(path: str | None = None) -> dict:
             os.makedirs(parent, exist_ok=True)
         except PermissionError:
             print(f"[config] Cannot create {parent} — run as root/admin or specify --config", file=sys.stderr)
+            config["_config_path"] = path
             return config
 
         default_with_id = dict(DEFAULT_CONFIG)
         default_with_id["agent_id"] = str(uuid.uuid4())
 
         if platform.system() != "Windows":
-            # On unix: create file with restricted permissions atomically
-            # using os.open with mode flags so the file is never world-readable
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(default_with_id, f, indent=2)
@@ -77,7 +76,6 @@ def load_config(path: str | None = None) -> dict:
 
         config = default_with_id
         print(f"[config] Created default config at {path}", file=sys.stderr)
-        print(f"[config] Edit this file to set your tenant_key and blackbox_url", file=sys.stderr)
 
     # Generate agent_id if missing
     if not config.get("agent_id"):
@@ -87,7 +85,34 @@ def load_config(path: str | None = None) -> dict:
     if not config.get("log_dir"):
         config["log_dir"] = _default_log_dir()
 
+    # Stash the resolved path so we can save back to it
+    config["_config_path"] = path
+
     return config
+
+
+def save_config(config: dict) -> None:
+    """Write current config back to disk (strips internal keys)."""
+    path = config.get("_config_path")
+    if not path:
+        print("[config] No config path — cannot save", file=sys.stderr)
+        return
+
+    # Strip internal keys that start with _
+    to_save = {k: v for k, v in config.items() if not k.startswith("_")}
+
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+
+    if platform.system() != "Windows" and not os.path.exists(path):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(to_save, f, indent=2)
+    else:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(to_save, f, indent=2)
+
+    print(f"[config] Saved config to {path}", file=sys.stderr)
 
 
 def validate_config(config: dict) -> list[str]:
