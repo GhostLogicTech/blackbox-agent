@@ -99,6 +99,7 @@ def _is_our_agent(pid: int) -> bool:
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
             line = result.stdout.lower()
             return "python" in line or "ghostlogic" in line
@@ -143,7 +144,8 @@ def _stop_agent(config: dict) -> None:
     try:
         if _SYSTEM == "Windows":
             subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                           capture_output=True, check=True)
+                           capture_output=True, check=True,
+                           creationflags=0x08000000)  # CREATE_NO_WINDOW
         else:
             import signal
             os.kill(pid, signal.SIGTERM)
@@ -170,13 +172,13 @@ def _spawn_background(config_path: str, demo: bool) -> int:
         cmd.append("--demo")
 
     if _SYSTEM == "Windows":
-        # DETACHED_PROCESS (0x08) | CREATE_NEW_PROCESS_GROUP (0x200)
+        # DETACHED_PROCESS (0x08) | CREATE_NEW_PROCESS_GROUP (0x200) | CREATE_NO_WINDOW (0x08000000)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
-            creationflags=0x00000008 | 0x00000200,
+            creationflags=0x00000008 | 0x00000200 | 0x08000000,
         )
     else:
         proc = subprocess.Popen(

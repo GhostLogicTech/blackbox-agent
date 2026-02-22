@@ -9,6 +9,10 @@ import time
 
 _SYSTEM = platform.system()
 
+# On Windows, subprocess.run() creates a visible console window by default.
+# CREATE_NO_WINDOW (0x08000000) suppresses this — no more phantom cmd flashes.
+_SUBPROCESS_FLAGS = 0x08000000 if _SYSTEM == "Windows" else 0
+
 
 def _get_hostname() -> str:
     return socket.gethostname()
@@ -40,6 +44,7 @@ def _get_uptime() -> float | None:
             result = subprocess.run(
                 ["sysctl", "-n", "kern.boottime"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return None
@@ -94,6 +99,7 @@ def _get_cpu_usage() -> float | None:
             result = subprocess.run(
                 ["ps", "-A", "-o", "%cpu"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return None
@@ -113,6 +119,7 @@ def _get_cpu_usage() -> float | None:
             result = subprocess.run(
                 ["wmic", "cpu", "get", "LoadPercentage", "/value"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             for line in result.stdout.split("\n"):
                 if "LoadPercentage" in line and "=" in line:
@@ -147,6 +154,7 @@ def _get_memory_usage() -> dict | None:
             result = subprocess.run(
                 ["sysctl", "-n", "hw.memsize"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0 or not result.stdout.strip().isdigit():
                 return None
@@ -154,6 +162,7 @@ def _get_memory_usage() -> dict | None:
             result2 = subprocess.run(
                 ["vm_stat"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             pages_free = 0
             page_size = 4096
@@ -213,6 +222,7 @@ def _get_processes(top_n: int = 20) -> list[dict]:
             result = subprocess.run(
                 ["ps", "-eo", "pid,pcpu,pmem,comm", "--sort=-pcpu", "--no-headers"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return procs
@@ -233,6 +243,7 @@ def _get_processes(top_n: int = 20) -> list[dict]:
             result = subprocess.run(
                 ["ps", "-eo", "pid,pcpu,pmem,comm", "-r"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return procs
@@ -254,6 +265,7 @@ def _get_processes(top_n: int = 20) -> list[dict]:
             result = subprocess.run(
                 ["tasklist", "/FO", "CSV", "/NH"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return procs
@@ -285,6 +297,7 @@ def _get_network_summary() -> list[dict]:
             cmd = ["ss", "-tuln"] if _SYSTEM == "Linux" else ["netstat", "-an", "-p", "tcp"]
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             listening = 0
             established = 0
@@ -302,6 +315,7 @@ def _get_network_summary() -> list[dict]:
             result = subprocess.run(
                 ["netstat", "-an"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             listening = 0
             established = 0
@@ -345,6 +359,7 @@ def _get_disk_usage() -> list[dict]:
             result = subprocess.run(
                 ["df", "-B1", "--output=target,size,used,avail"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n")[1:]:
@@ -370,6 +385,7 @@ def _get_disk_usage() -> list[dict]:
             result = subprocess.run(
                 ["df", "-b"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n")[1:]:
@@ -425,6 +441,7 @@ def _get_open_ports() -> list[dict]:
             result = subprocess.run(
                 ["netstat", "-ano", "-p", "TCP"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return ports
@@ -453,6 +470,7 @@ def _get_open_ports() -> list[dict]:
             result = subprocess.run(
                 ["ss", "-tlnp"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return ports
@@ -479,6 +497,7 @@ def _get_open_ports() -> list[dict]:
             result = subprocess.run(
                 ["netstat", "-an", "-p", "tcp"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
             )
             if result.returncode != 0:
                 return ports
