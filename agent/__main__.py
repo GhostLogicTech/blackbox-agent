@@ -129,12 +129,14 @@ def _stop_agent(config: dict) -> None:
         return
 
     with open(pid_path, "r") as f:
-        try:
-            pid = int(f.read().strip())
-        except ValueError:
-            print("Corrupt PID file. Removing.")
-            _remove_pid(pid_path)
-            return
+        raw = f.read().strip()
+
+    try:
+        pid = int(raw)
+    except ValueError:
+        print("Corrupt PID file. Removing.")
+        _remove_pid(pid_path)
+        return
 
     if not _is_our_agent(pid):
         print(f"PID {pid} is not a GhostLogic agent (stale PID file). Cleaning up.")

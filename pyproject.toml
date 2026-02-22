@@ -38,3 +38,6 @@ ghostlogic-agent = "agent.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
