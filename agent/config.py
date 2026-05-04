@@ -13,10 +13,33 @@ DEFAULT_CONFIG = {
     "tenant_key": "",
     "agent_id": "",
     "collect_interval_secs": 5,
-    "seal_interval_secs": 60,
-    "demo_mode": True,
+    "seal_interval_secs": 300,
+    "demo_mode": False,
     "log_dir": "",
-    "log_max_hours": 24,
+    "log_max_hours": 48,
+    "queue_dir": "",
+    "max_retries": 3,
+
+    # ---- queue-drain safety (added 2026-04-24 for safe re-enable) ----
+    # If True at startup, the existing queue/ is renamed to queue.parked-<ts>/
+    # and a fresh empty queue/ is created. Old queue is preserved untouched.
+    # CLI flag --skip-backlog overrides this to True.
+    "skip_backlog": False,
+
+    # Rate limit applied during flush_queue (replay of offline backlog).
+    # New live-cycle posts are NOT rate-limited (they happen at most once
+    # per collect_interval_secs). Defaults are conservative — adjust upward
+    # once you're confident the server can absorb a faster drain.
+    "drain_max_posts_per_minute": 30,
+    "drain_max_bytes_per_minute": 50_000_000,   # 50 MB/min
+    "drain_max_retries_per_batch": 3,
+
+    # HTTP codes that abort the in-flight flush instead of retrying. 401/403
+    # = auth scope failure (bigger problem than this batch). 422 = server
+    # rejected payload shape — retrying won't fix it.
+    "drain_abort_on_codes": [401, 403, 422],
+    # HTTP codes worth retrying with backoff during a single batch's send.
+    "drain_retry_on_codes": [408, 429, 500, 502, 503, 504],
 }
 
 

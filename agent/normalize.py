@@ -78,6 +78,36 @@ def normalize_telemetry(raw: dict, agent_id: str, source_id: str) -> dict:
             },
         })
 
+    # --- NEW EVENT TYPES ---
+
+    _append_list_event(events, ts, raw, "event_log", "event_log", "entries")
+    _append_list_event(events, ts, raw, "services", "services", "services", count_key="stopped_count")
+    _append_list_event(events, ts, raw, "network_bytes", "network_bytes", "adapters", include_count=False)
+    _append_list_event(events, ts, raw, "logged_in_users", "user_sessions", "sessions")
+    _append_list_event(events, ts, raw, "hotfixes", "hotfixes", "patches")
+    _append_list_event(events, ts, raw, "scheduled_tasks", "scheduled_tasks", "tasks")
+    _append_list_event(events, ts, raw, "dns_cache", "dns_cache", "entries")
+    _append_list_event(events, ts, raw, "startup_programs", "startup_programs", "programs")
+
+    # Dict-type events (firewall, environment, battery)
+    for raw_key, evt_type in [("firewall", "firewall"), ("environment", "environment")]:
+        val = raw.get(raw_key)
+        if val:
+            events.append({"event_type": evt_type, "timestamp": ts, "data": val})
+
+    battery = raw.get("battery")
+    if battery:
+        events.append({"event_type": "battery", "timestamp": ts, "data": battery})
+
+    # Collector failures (meta)
+    failures = raw.get("collector_failures", [])
+    if failures:
+        events.append({
+            "event_type": "collector_failures",
+            "timestamp": ts,
+            "data": {"count": len(failures), "failures": failures},
+        })
+
     hostname = raw.get("hostname", "unknown")
 
     return {
@@ -88,6 +118,20 @@ def normalize_telemetry(raw: dict, agent_id: str, source_id: str) -> dict:
         "batch_id": str(uuid.uuid4()),
         "timestamp": ts,
     }
+
+
+def _append_list_event(
+    events: list, ts: str, raw: dict,
+    raw_key: str, event_type: str, data_key: str,
+    count_key: str = "count", include_count: bool = True,
+) -> None:
+    """Helper: if raw[raw_key] has items, append a normalized event."""
+    items = raw.get(raw_key, [])
+    if items:
+        data: dict = {data_key: items}
+        if include_count:
+            data[count_key] = len(items)
+        events.append({"event_type": event_type, "timestamp": ts, "data": data})
 
 
 def _iso_now() -> str:

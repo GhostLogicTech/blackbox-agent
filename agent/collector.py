@@ -525,19 +525,403 @@ def _get_open_ports() -> list[dict]:
     return ports
 
 
+# ============================================================
+# NEW COLLECTORS — 11 additional (total: 21 with originals)
+# ============================================================
+
+
+def _get_event_log(max_events: int = 25) -> list[dict]:
+    """#11: Windows Event Log — recent critical/error/warning entries."""
+    events: list[dict] = []
+    if _SYSTEM != "Windows":
+        return events
+    try:
+        for log_name in ("System", "Application"):
+            result = subprocess.run(
+                ["wevtutil", "qe", log_name, f"/c:{max_events}", "/f:text",
+                 "/rd:true", "/q:*[System[(Level=1 or Level=2 or Level=3)]]"],
+                capture_output=True, text=True, timeout=15,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if result.returncode != 0:
+                continue
+            current: dict = {}
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if not line:
+                    if current:
+                        current["log_name"] = log_name
+                        events.append(current)
+                        current = {}
+                    continue
+                if ":" in line:
+                    key, _, val = line.partition(":")
+                    key = key.strip().lower().replace(" ", "_")
+                    val = val.strip()
+                    if key in ("date", "time_created"):
+                        current["event_time"] = val
+                    elif key == "source":
+                        current["source"] = val
+                    elif key == "event_id":
+                        try:
+                            current["event_id"] = int(val)
+                        except ValueError:
+                            current["event_id"] = val
+                    elif key == "level":
+                        current["level"] = val
+                    elif key in ("description", "message"):
+                        current["message"] = val[:500]
+            if current:
+                current["log_name"] = log_name
+                events.append(current)
+    except Exception:
+        pass
+    return events[:max_events]
+
+
+def _get_services() -> list[dict]:
+    """#12: Auto-start Windows services that are NOT running."""
+    services: list[dict] = []
+    if _SYSTEM != "Windows":
+        return services
+    try:
+        result = subprocess.run(
+            ["sc", "query", "type=", "service", "state=", "inactive"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode != 0:
+            return services
+        current: dict = {}
+        for line in result.stdout.split("\n"):
+            line = line.strip()
+            if line.startswith("SERVICE_NAME:"):
+                if current:
+                    services.append(current)
+                current = {"service_name": line.split(":", 1)[1].strip()}
+            elif line.startswith("DISPLAY_NAME:"):
+                current["display_name"] = line.split(":", 1)[1].strip()
+            elif line.startswith("STATE"):
+                for p in line.split():
+                    if p in ("STOPPED", "PAUSED", "START_PENDING", "STOP_PENDING"):
+                        current["status"] = p
+                        break
+        if current:
+            services.append(current)
+    except Exception:
+        pass
+    return services
+
+
+def _get_network_bytes() -> list[dict]:
+    """#13: Per-adapter bytes sent/received."""
+    adapters: list[dict] = []
+    try:
+        if _SYSTEM == "Windows":
+            result = subprocess.run(
+                ["netstat", "-e"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split("\n"):
+                    if "Bytes" in line:
+                        nums = [x.replace(",", "") for x in line.split()
+                                if x.replace(",", "").isdigit()]
+                        if len(nums) >= 2:
+                            adapters.append({
+                                "adapter_name": "Total",
+                                "bytes_received": int(nums[0]),
+                                "bytes_sent": int(nums[1]),
+                            })
+        elif _SYSTEM == "Linux":
+            with open("/proc/net/dev", "r") as f:
+                for line in f.readlines()[2:]:
+                    parts = line.split()
+                    if len(parts) >= 10:
+                        iface = parts[0].rstrip(":")
+                        if iface != "lo":
+                            adapters.append({
+                                "adapter_name": iface,
+                                "bytes_received": int(parts[1]),
+                                "bytes_sent": int(parts[9]),
+                            })
+    except Exception:
+        pass
+    return adapters
+
+
+def _get_logged_in_users() -> list[dict]:
+    """#14: Currently logged-in user sessions."""
+    users: list[dict] = []
+    try:
+        if _SYSTEM == "Windows":
+            result = subprocess.run(
+                ["query", "user"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n")[1:]:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        users.append({
+                            "username": parts[0].lstrip(">"),
+                            "session": parts[1],
+                            "state": parts[3] if len(parts) > 3 else "unknown",
+                        })
+        elif _SYSTEM == "Linux":
+            result = subprocess.run(
+                ["who"], capture_output=True, text=True, timeout=5,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        users.append({
+                            "username": parts[0],
+                            "terminal": parts[1],
+                            "login_time": " ".join(parts[2:4]),
+                        })
+    except Exception:
+        pass
+    return users
+
+
+def _get_firewall_status() -> dict:
+    """#15: Windows firewall profile status."""
+    status: dict = {}
+    if _SYSTEM != "Windows":
+        return status
+    try:
+        result = subprocess.run(
+            ["netsh", "advfirewall", "show", "allprofiles", "state"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode == 0:
+            current_profile = ""
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if "Profile" in line and "Settings" in line:
+                    current_profile = line.split()[0].lower()
+                elif "State" in line and current_profile:
+                    status[current_profile] = line.split()[-1]
+    except Exception:
+        pass
+    return status
+
+
+def _get_installed_hotfixes() -> list[dict]:
+    """#16: Recently installed Windows hotfixes/updates."""
+    fixes: list[dict] = []
+    if _SYSTEM != "Windows":
+        return fixes
+    try:
+        result = subprocess.run(
+            ["wmic", "qfe", "get", "HotFixID,InstalledOn,Description", "/format:csv"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode == 0:
+            lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
+            for line in lines[1:]:
+                parts = line.split(",")
+                if len(parts) >= 4:
+                    fixes.append({
+                        "description": parts[1],
+                        "hotfix_id": parts[2],
+                        "installed_on": parts[3],
+                    })
+    except Exception:
+        pass
+    return fixes[:20]
+
+
+def _get_scheduled_tasks() -> list[dict]:
+    """#17: Running/Ready scheduled tasks."""
+    tasks: list[dict] = []
+    if _SYSTEM != "Windows":
+        return tasks
+    try:
+        result = subprocess.run(
+            ["schtasks", "/query", "/fo", "csv", "/nh"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                parts = line.strip('"').split('","')
+                if len(parts) >= 3:
+                    status_val = parts[2].strip('"') if len(parts) > 2 else ""
+                    if status_val in ("Running", "Ready"):
+                        tasks.append({
+                            "task_name": parts[0].strip('"')[:100],
+                            "next_run": parts[1].strip('"')[:30] if len(parts) > 1 else "",
+                            "status": status_val,
+                        })
+    except Exception:
+        pass
+    return tasks[:30]
+
+
+def _get_environment_vars() -> dict:
+    """#18: Security-relevant environment variables (no secrets)."""
+    safe_keys = [
+        "COMPUTERNAME", "OS", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+        "SYSTEMROOT", "TEMP", "TMP", "USERDOMAIN", "LOGONSERVER",
+        "PATHEXT", "COMSPEC", "PUBLIC", "PROGRAMDATA",
+    ]
+    result = {}
+    for key in safe_keys:
+        val = os.environ.get(key)
+        if val:
+            result[key] = val
+    return result
+
+
+def _get_dns_cache() -> list[dict]:
+    """#19: Windows DNS resolver cache entries."""
+    entries: list[dict] = []
+    if _SYSTEM != "Windows":
+        return entries
+    try:
+        result = subprocess.run(
+            ["ipconfig", "/displaydns"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode != 0:
+            return entries
+        current: dict = {}
+        for line in result.stdout.split("\n"):
+            line = line.strip()
+            if "Record Name" in line:
+                if current:
+                    entries.append(current)
+                current = {"name": line.split(":", 1)[1].strip()}
+            elif "Record Type" in line and current:
+                current["type"] = line.split(":", 1)[1].strip()
+            elif "A (Host)" in line or "AAAA" in line:
+                if "Section" not in line and current:
+                    current["address"] = line.split(":", 1)[1].strip()
+        if current:
+            entries.append(current)
+    except Exception:
+        pass
+    return entries[:50]
+
+
+def _get_startup_programs() -> list[dict]:
+    """#20: Programs that run at system startup (registry-based)."""
+    programs: list[dict] = []
+    if _SYSTEM != "Windows":
+        return programs
+    try:
+        for hive_key in [
+            r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+            r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        ]:
+            result = subprocess.run(
+                ["reg", "query", hive_key],
+                capture_output=True, text=True, timeout=10,
+                creationflags=_SUBPROCESS_FLAGS,
+            )
+            if result.returncode != 0:
+                continue
+            for line in result.stdout.split("\n"):
+                line = line.strip()
+                if "REG_SZ" in line or "REG_EXPAND_SZ" in line:
+                    parts = line.split(None, 2)
+                    if len(parts) >= 3:
+                        programs.append({
+                            "name": parts[0],
+                            "value": parts[2][:200],
+                            "hive": hive_key.split("\\")[0],
+                        })
+    except Exception:
+        pass
+    return programs
+
+
+def _get_battery_status() -> dict | None:
+    """#21: Battery status (laptops only)."""
+    if _SYSTEM != "Windows":
+        return None
+    try:
+        result = subprocess.run(
+            ["wmic", "path", "Win32_Battery", "get",
+             "EstimatedChargeRemaining,BatteryStatus", "/format:csv"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=_SUBPROCESS_FLAGS,
+        )
+        if result.returncode != 0:
+            return None
+        lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
+        if len(lines) >= 2:
+            parts = lines[1].split(",")
+            if len(parts) >= 3:
+                status_code = int(parts[1]) if parts[1].isdigit() else 0
+                status_map = {1: "discharging", 2: "ac_power", 3: "fully_charged",
+                              4: "low", 5: "critical", 6: "charging"}
+                return {
+                    "charge_percent": int(parts[2]) if parts[2].isdigit() else None,
+                    "status": status_map.get(status_code, f"unknown({status_code})"),
+                }
+    except Exception:
+        pass
+    return None
+
+
+# ============================================================
+# MASTER COLLECTOR — safe wrappers, never crashes the loop
+# ============================================================
+
+
 def collect_all() -> dict:
-    """Collect all telemetry and return as a raw dict."""
-    mem = _get_memory_usage()
-    return {
-        "hostname": _get_hostname(),
-        "os": _get_os_info(),
-        "username": _get_username(),
-        "uptime_secs": _get_uptime(),
-        "cpu_percent": _get_cpu_usage(),
+    """Collect ALL 21 telemetry sources. Each collector is individually
+    wrapped — if one fails, the rest still produce data.
+    Failures are recorded in collector_failures for diagnostics.
+    """
+    failures: list[str] = []
+
+    def _safe(name: str, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            failures.append(f"{name}: {type(e).__name__}: {e}")
+            return None
+
+    mem = _safe("memory", _get_memory_usage)
+
+    result = {
+        # --- Original 10 ---
+        "hostname": _safe("hostname", _get_hostname) or "unknown",
+        "os": _safe("os_info", _get_os_info) or {},
+        "username": _safe("username", _get_username) or "unknown",
+        "uptime_secs": _safe("uptime", _get_uptime),
+        "cpu_percent": _safe("cpu", _get_cpu_usage),
         "memory": mem,
         "ram_percent": mem.get("percent") if mem else None,
-        "processes": _get_processes(20),
-        "network": _get_network_summary(),
-        "disks": _get_disk_usage(),
-        "open_ports": _get_open_ports(),
+        "processes": _safe("processes", _get_processes, 20) or [],
+        "network": _safe("network", _get_network_summary) or [],
+        "disks": _safe("disks", _get_disk_usage) or [],
+        "open_ports": _safe("open_ports", _get_open_ports) or [],
+        # --- New 11 ---
+        "event_log": _safe("event_log", _get_event_log) or [],
+        "services": _safe("services", _get_services) or [],
+        "network_bytes": _safe("network_bytes", _get_network_bytes) or [],
+        "logged_in_users": _safe("users", _get_logged_in_users) or [],
+        "firewall": _safe("firewall", _get_firewall_status) or {},
+        "hotfixes": _safe("hotfixes", _get_installed_hotfixes) or [],
+        "scheduled_tasks": _safe("schtasks", _get_scheduled_tasks) or [],
+        "environment": _safe("env_vars", _get_environment_vars) or {},
+        "dns_cache": _safe("dns_cache", _get_dns_cache) or [],
+        "startup_programs": _safe("startup", _get_startup_programs) or [],
+        "battery": _safe("battery", _get_battery_status),
+        # --- Meta ---
+        "collector_failures": failures,
     }
+
+    return result
